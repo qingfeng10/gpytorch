@@ -37,6 +37,27 @@ class LazyEvaluatedKernelTensor(LazyTensor):
     def device(self):
         return self.x1.device
 
+    @property
+    def requires_grad(self):
+        return super().requires_grad or any(param.requires_grad for param in self.kernel.parameters())
+
+    @requires_grad.setter
+    def requires_grad(self, val):
+        # NOTE: the following code is copy-pasted from the base LazyTensor requires_grad.setter
+        # We can't easily call the super setter due to a bug in Python
+        # (see https://bugs.python.org/issue14965)
+        for arg in self._args:
+            if hasattr(arg, "requires_grad"):
+                if arg.dtype in (torch.float, torch.double, torch.half):
+                    arg.requires_grad = val
+        for arg in self._kwargs.values():
+            if hasattr(arg, "requires_grad"):
+                arg.requires_grad = val
+
+        # The behavior that differs from the base LazyTensor setter
+        for param in self.kernel.parameters():
+            param.requires_grad = val
+
     def _expand_batch(self, batch_shape):
         return self.evaluate_kernel()._expand_batch(batch_shape)
 
@@ -91,8 +112,8 @@ class LazyEvaluatedKernelTensor(LazyTensor):
         except IndexError:
             if any(not isinstance(bi, slice) for bi in batch_indices):
                 raise RuntimeError(
-                    f"Attempting to tensor index a non-batch matrix's batch dimensions. "
-                    "Got batch index {batch_indices} but my shape was {self.shape}"
+                    "Attempting to tensor index a non-batch matrix's batch dimensions. "
+                    f"Got batch index {batch_indices} but my shape was {self.shape}"
                 )
             x1 = x1.expand(*([1] * (len(batch_indices) - self.x1.dim() + 2)), *self.x1.shape)
             x1 = x1[(*batch_indices, row_index, dim_index)]
@@ -105,8 +126,8 @@ class LazyEvaluatedKernelTensor(LazyTensor):
         except IndexError:
             if any([not isinstance(bi, slice) for bi in batch_indices]):
                 raise RuntimeError(
-                    f"Attempting to tensor index a non-batch matrix's batch dimensions. "
-                    "Got batch index {batch_indices} but my shape was {self.shape}"
+                    "Attempting to tensor index a non-batch matrix's batch dimensions. "
+                    f"Got batch index {batch_indices} but my shape was {self.shape}"
                 )
             x2 = x2.expand(*([1] * (len(batch_indices) - self.x1.dim() + 2)), *self.x2.shape)
             x2 = x2[(*batch_indices, col_index, dim_index)]
